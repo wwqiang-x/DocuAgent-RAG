@@ -70,7 +70,8 @@ class ItemNameConfirmedNode(BaseNode):
             else:
                 state["answer"] = f"我不确定您指的是什么，请问你是在询问以下内容吗:\n[{', '.join(options)}]"
         else:
-            state["answer"] = "抱歉我无法理解你的问题"
+            state["item_names"] = []
+            state["rewritten_query"] = rewritten_query
         return state
 
 class _ItemNameExtractor:

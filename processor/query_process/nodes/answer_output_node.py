@@ -184,7 +184,7 @@ class AnswerOutputNode(BaseNode):
                 item_names=state.get("item_names")
             )
         except Exception as e:
-            self.logging.error(f"保存历史记录失败:{e}")
+            self.logger.error(f"保存历史记录失败:{e}")
 
 if __name__ == "__main__":
     state =  {

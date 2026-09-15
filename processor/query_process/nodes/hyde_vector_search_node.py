@@ -47,11 +47,18 @@ class HyDEVectorSearchNode(BaseNode):
         # 4.获取Milvus客户端
         milvus_client = StorageClients.get_milvus_client()
         # 5.生成混合向量检索请求
+        # 修改后的代码
+        item_names = state.get("item_names", [])
+
+        # 动态判断是否需要过滤条件
+        expr = "item_name in {list}" if item_names else None
+        expr_params = {"list": item_names} if item_names else None
+
         hybrid_requests = create_hybrid_search_requests(
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
-            expr="item_name in {list}",
-            expr_params={"list":item_names}
+            expr=expr,
+            expr_params=expr_params
         )
         # 6.进行混合向量检索
         res:SearchResult = execute_hybrid_search_query(

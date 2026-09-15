@@ -1,7 +1,5 @@
 import json
 
-from django.db.models.expressions import result
-
 from processor.query_process.base import BaseNode, T
 from processor.query_process.nodes.rrf_merge_node import RRFMergeNode
 from processor.query_process.state import QueryGraphState
@@ -89,6 +87,8 @@ class ReRankerNode(BaseNode):
 
     def _normalize_scores(self,scores):
         #分数归一化
+        if not scores:  # <--- 新增：如果分数列表为空
+            return []  # <--- 新增：直接返回空列表，不要执行后面的max/min
         max_score = max(scores)
         min_score = min(scores)
         normalize_scores = []

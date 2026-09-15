@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Tuple,List,Dict
 from collections import deque
 import time
-
+import urllib.parse
 import minio
 from click import prompt
 
@@ -153,7 +153,7 @@ class MdImgNode(BaseNode):
                 if re.match(r"^!\[.*?\]\(.*?\)$", stripped_line):
                     #如果是图片判断是否为空集
                     if current_para:
-                        p_str = "/n".join(current_para)
+                        p_str = "\n".join(current_para)
                         para_list.append(p_str)
                         current_para = []
                 else:
@@ -182,7 +182,7 @@ class MdImgNode(BaseNode):
 
             for p in para_list[1:]:
                 total_chars += len(p)
-                if total_chars + len_p > max_chars:
+                if total_chars + len(p) > max_chars:
                     break
                 else:
                     selected_para_list.append(p)
@@ -282,8 +282,13 @@ class MdImgNode(BaseNode):
                 object_name = f"{document_name}/{img_name}",
                 file_path = img_path
             )
-            remote_url = f"{self.config.get_minio_base_url()}/{self.config.minio_bucket}/{document_name}/{img_name}"
+            original_url = f"{self.config.get_minio_base_url()}/{self.config.minio_bucket}/{document_name}/{img_name}"
+            # 关键：全量编码，把中文、空格全变成 %XX
+            encoded_url = urllib.parse.quote(original_url, safe='')
+            # 关键：套上你的代理接口
+            remote_url = f"http://127.0.0.1:8001/api/proxy/image?url={encoded_url}"
             urls[img_name] = remote_url
+
         #summary摘要 remote_url地址
         new_content = md_content
         for img_name, summary in image_summaries.items():
