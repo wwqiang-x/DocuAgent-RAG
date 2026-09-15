@@ -1,0 +1,24 @@
+# 虚拟环境 (千万别传)
+.venv311/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# 敏感信息 (千万不要传)
+.env
+.env.local
+
+# 构建产物和临时文件
+*.egg-info/
+temp_data/
+dist/
+build/
+
+# 编辑器配置
+.idea/
+.vscode/
+.DS_Store
+
+# 其他
+*.log

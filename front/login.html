@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌柜智库 · 知识库系统登录</title>
+<style>
+  /* ============ 设计变量：严谨检索风 ============ */
+  :root {
+    --bg: #0b1220;
+    --bg-deep: #070c15;
+    --panel: #101a2c;
+    --panel-2: #0d1626;
+    --line: #1e2c44;
+    --line-strong: #2c4166;
+    --text: #e6edf6;
+    --text-dim: #8ca0bc;
+    --text-faint: #5b6e8c;
+    --accent: #5b8def;
+    --accent-bright: #7fa8ff;
+    --ok: #3ecf8e;
+    --warn: #f0b429;
+    --err: #f4606c;
+    --sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ============ 背景网格 ============ */
+  .grid-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 39px, rgba(91,141,239,.045) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, rgba(91,141,239,.045) 39px 40px),
+      radial-gradient(1100px 620px at 72% -10%, rgba(91,141,239,.10), transparent 60%),
+      radial-gradient(900px 560px at 8% 108%, rgba(62,207,142,.05), transparent 60%);
+  }
+  .grid-bg::after { /* 顶部细扫描线，强化精密感 */
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(127,168,255,.5), transparent);
+  }
+
+  /* ============ 布局 ============ */
+  .stage {
+    position: relative;
+    z-index: 1;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(11,18,32,.72);
+    backdrop-filter: blur(6px);
+    animation: fadeDown .5s ease both;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 34px; height: 34px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    display: grid; place-items: center;
+    color: var(--accent-bright);
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 0;
+    position: relative;
+  }
+  .brand-mark::after {
+    content: "";
+    position: absolute; inset: 4px;
+    border: 1px dashed rgba(91,141,239,.35);
+    border-radius: 3px;
+  }
+  .brand-name { font-size: 16px; font-weight: 600; letter-spacing: .5px; }
+  .brand-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 2px;
+    margin-top: 2px;
+  }
+  .sys-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex; gap: 18px; align-items: center;
+  }
+  .sys-meta .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px rgba(62,207,142,.8);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 72px;
+    align-items: center;
+    max-width: 1180px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 56px 40px;
+  }
+
+  /* ============ 左侧：系统介绍 ============ */
+  .intro { animation: fadeUp .6s ease .1s both; }
+  .intro .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent-bright);
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    padding: 5px 10px;
+    margin-bottom: 22px;
+  }
+  .intro h1 {
+    font-size: 40px;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .intro h1 em {
+    font-style: normal;
+    color: var(--accent-bright);
+  }
+  .intro .lead {
+    margin-top: 18px;
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.9;
+    max-width: 460px;
+  }
+
+  /* 能力列表 */
+  .capabilities {
+    list-style: none;
+    margin-top: 34px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 28px;
+  }
+  .capabilities li {
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--accent);
+    background: var(--panel-2);
+    padding: 13px 15px;
+    border-radius: 4px;
+  }
+  .capabilities .idx {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 1px;
+  }
+  .capabilities b {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 6px 0 3px;
+  }
+  .capabilities p {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+
+  /* 流水线示意 */
+  .pipeline {
+    margin-top: 34px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .pipeline .cap { letter-spacing: 3px; color: var(--text-faint); margin-bottom: 12px; }
+  .pipeline ol { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
+  .pipeline li { display: flex; align-items: center; gap: 8px; }
+  .pipeline .node {
+    border: 1px solid var(--line-strong);
+    background: var(--panel-2);
+    padding: 7px 11px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .pipeline .node b { color: var(--text); font-weight: 600; font-size: 11px; }
+  .pipeline .node span { color: var(--text-faint); font-size: 9px; margin-left: 6px; }
+  .pipeline .arrow { color: var(--text-faint); margin: 0 8px; }
+
+  /* ============ 右侧：登录面板 ============ */
+  .login-wrap { animation: fadeUp .6s ease .22s both; }
+  .login-panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    padding: 40px 40px 32px;
+    box-shadow: 0 24px 64px rgba(0,0,0,.45);
+  }
+  /* 四角准星括号 */
+  .login-panel::before, .login-panel::after,
+  .login-wrap::before, .login-wrap::after {
+    content: "";
+    position: absolute;
+    width: 14px; height: 14px;
+    border: 1px solid var(--accent);
+    pointer-events: none;
+  }
+  .login-panel::before { top: -1px; left: -1px; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
+  .login-panel::after  { top: -1px; right: -1px; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
+  .login-wrap::before  { bottom: -1px; left: -1px; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
+  .login-wrap::after   { bottom: -1px; right: -1px; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--text-faint);
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+  }
+  .panel-head .status {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--ok);
+  }
+  .panel-head .status::before {
+    content: "";
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px rgba(62,207,142,.8);
+  }
+
+  .login-panel h2 { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+  .login-panel .sub { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+
+  .field { margin-top: 22px; }
+  .field label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .field label .en { color: var(--text-faint); font-size: 9px; }
+  .input-box { position: relative; }
+  .input-box input {
+    width: 100%;
+    background: var(--bg-deep);
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    padding: 13px 14px;
+    outline: none;
+    transition: border-color .18s ease, box-shadow .18s ease;
+    caret-color: var(--accent-bright);
+  }
+  .input-box input::placeholder { color: var(--text-faint); }
+  .input-box input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(91,141,239,.14);
+  }
+  .input-box input.input-error { border-color: var(--err); }
+  .input-box .toggle-pwd {
+    position: absolute;
+    right: 8px; top: 50%;
+    transform: translateY(-50%);
+    background: none; border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 6px;
+    display: grid; place-items: center;
+  }
+  .input-box .toggle-pwd:hover { color: var(--text-dim); }
+  .field .err-msg {
+    display: none;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--err);
+    margin-top: 7px;
+    letter-spacing: .5px;
+  }
+  .field .err-msg.show { display: block; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
+  .remember { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .remember input {
+    appearance: none;
+    width: 15px; height: 15px;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    background: var(--bg-deep);
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: all .15s ease;
+  }
+  .remember input:checked { background: var(--accent); border-color: var(--accent); }
+  .remember input:checked::after {
+    content: "✓";
+    color: #fff;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .remember span { font-size: 12px; color: var(--text-dim); }
+  .forgot {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-decoration: none;
+    letter-spacing: 1px;
+  }
+  .forgot:hover { color: var(--accent-bright); }
+
+  .btn-submit {
+    width: 100%;
+    margin-top: 28px;
+    padding: 14px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 6px;
+    cursor: pointer;
+    font-family: var(--sans);
+    transition: background .18s ease, box-shadow .18s ease, transform .12s ease;
+  }
+  .btn-submit:hover:not(:disabled) {
+    background: var(--accent-bright);
+    border-color: var(--accent-bright);
+    box-shadow: 0 8px 24px rgba(91,141,239,.35);
+  }
+  .btn-submit:active:not(:disabled) { transform: translateY(1px); }
+  .btn-submit:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-submit .spinner {
+    display: none;
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    margin: 0 auto;
+    animation: spin .7s linear infinite;
+  }
+  .btn-submit.loading .btn-text { display: none; }
+  .btn-submit.loading .spinner { display: block; }
+
+  .panel-foot {
+    margin-top: 26px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1.9;
+    letter-spacing: .5px;
+  }
+  .panel-foot .warn { color: var(--warn); }
+
+  /* 登录成功态 */
+  .success-box { display: none; text-align: center; padding: 26px 0 10px; }
+  .success-box.show { display: block; }
+  .success-box .check {
+    width: 56px; height: 56px;
+    margin: 0 auto 18px;
+    border: 1px solid var(--ok);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    color: var(--ok);
+    font-size: 24px;
+    animation: pop .35s cubic-bezier(.2,1.6,.4,1) both;
+  }
+  .success-box h3 { font-size: 18px; letter-spacing: 2px; }
+  .success-box p { font-size: 12px; color: var(--text-dim); margin-top: 10px; line-height: 1.8; }
+  .success-box .mono-note {
+    display: inline-block;
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    border: 1px dashed var(--line-strong);
+    border-radius: 3px;
+    padding: 6px 12px;
+    letter-spacing: 1px;
+  }
+
+  footer {
+    text-align: center;
+    padding: 18px 40px 26px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 1.5px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ============ 动画 ============ */
+  @keyframes fadeUp   { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+  @keyframes spin  { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  @keyframes pop   { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* ============ 响应式 ============ */
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; gap: 44px; padding: 40px 24px; }
+    .intro h1 { font-size: 30px; }
+    .capabilities { grid-template-columns: 1fr; }
+    .sys-meta .hide-sm { display: none; }
+    .topbar { padding: 16px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+
+<div class="stage">
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">智库</div>
+      <div>
+        <div class="brand-name">掌柜智库 · 知识库系统</div>
+        <div class="brand-sub">KNOWLEDGE BASE SYSTEM</div>
+      </div>
+    </div>
+    <div class="sys-meta">
+      <span class="hide-sm">QUERY :8001</span>
+      <span class="hide-sm">IMPORT :8000</span>
+      <span class="hide-sm">v1.0</span>
+      <span style="display:flex;align-items:center;gap:6px;"><span class="dot"></span>SYSTEM NORMAL</span>
+    </div>
+  </header>
+
+  <!-- 主体 -->
+  <main class="layout">
+    <!-- 左：系统能力 -->
+    <section class="intro">
+      <span class="tag">RETRIEVAL AUGMENTED GENERATION</span>
+      <h1>严谨检索，<em>权威作答</em><br>让每一次提问都有据可循</h1>
+      <p class="lead">
+        面向掌柜的专业商品知识库。提问先对齐商品主体，再经混合召回、
+        倒排融合与重排序精筛，最终由大模型基于可信切片生成答案——检索链路全程可观测。
+      </p>
+
+      <ul class="capabilities">
+        <li>
+          <span class="idx">CAP.01</span>
+          <b>商品名对齐</b>
+          <p>提问商品与知识库主体向量精准匹配，识别不确定时主动澄清</p>
+        </li>
+        <li>
+          <span class="idx">CAP.02</span>
+          <b>三路并行召回</b>
+          <p>向量混合检索 + HyDE 假设性检索 + 网络搜索同步执行</p>
+        </li>
+        <li>
+          <span class="idx">CAP.03</span>
+          <b>重排序精筛</b>
+          <p>BGE 重排序模型打分，断崖监测剔除低质噪声切片</p>
+        </li>
+        <li>
+          <span class="idx">CAP.04</span>
+          <b>流式作答</b>
+          <p>SSE 实时推送答案与节点进度，检索链路全程可观测</p>
+        </li>
+      </ul>
+
+      <div class="pipeline">
+        <div class="cap">QUERY PIPELINE · 查询流水线</div>
+        <ol>
+          <li><span class="node"><b>商品名确认</b><span>ITEM.CONFIRM</span></span><span class="arrow">→</span></li>
+          <li><span class="node"><b>多路召回</b><span>MULTI.RECALL</span></span><span class="arrow">→</span></li>
+          <li><span class="node"><b>RRF 融合</b><span>RRF.MERGE</span></span><span class="arrow">→</span></li>
+          <li><span class="node"><b>重排序</b><span>RERANK</span></span><span class="arrow">→</span></li>
+          <li><span class="node"><b>答案生成</b><span>ANSWER.GEN</span></span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 右：登录面板 -->
+    <div class="login-wrap">
+      <div class="login-panel">
+        <div class="panel-head">
+          <span>SYS.LOGIN · 身份验证</span>
+          <span class="status">SECURE</span>
+        </div>
+
+        <!-- 表单区 -->
+        <form id="loginForm" novalidate>
+          <h2>登录知识库</h2>
+          <p class="sub">使用授权账号进入掌柜智库检索系统</p>
+
+          <div class="field">
+            <label>登录账号 <span class="en">USERNAME</span></label>
+            <div class="input-box">
+              <input type="text" id="username" name="username" autocomplete="username"
+                     placeholder="请输入登录账号" maxlength="32" autofocus>
+            </div>
+            <div class="err-msg" id="err-username"></div>
+          </div>
+
+          <div class="field">
+            <label>登录密码 <span class="en">PASSWORD</span></label>
+            <div class="input-box">
+              <input type="password" id="password" name="password" autocomplete="current-password"
+                     placeholder="请输入登录密码" maxlength="64">
+              <button type="button" class="toggle-pwd" id="togglePwd" title="显示/隐藏密码" aria-label="显示或隐藏密码">
+                <svg id="eyeOpen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg id="eyeClosed" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              </button>
+            </div>
+            <div class="err-msg" id="err-password"></div>
+          </div>
+
+          <div class="row">
+            <label class="remember">
+              <input type="checkbox" id="remember">
+              <span>记住此设备</span>
+            </label>
+            <a class="forgot" href="javascript:void(0)" id="forgotLink">忘记密码？联系管理员</a>
+          </div>
+
+          <button type="submit" class="btn-submit" id="btnSubmit">
+            <span class="btn-text">进入知识库</span>
+            <span class="spinner"></span>
+          </button>
+        </form>
+
+        <!-- 成功态 -->
+        <div class="success-box" id="successBox">
+          <div class="check">✓</div>
+          <h3>身份校验通过</h3>
+          <p id="successText">登录成功，正在进入知识库……</p>
+          <span class="mono-note">SESSION CREATED · AUTH.OK</span>
+        </div>
+
+        <div class="panel-foot">
+          <span class="warn">▲</span> 本系统仅限授权人员使用，所有检索与操作行为将被记录。<br>
+          演示环境：后端登录接口尚未接入（当前为前端模拟校验）。
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>© 2026 掌柜智库 · 知识库系统 · INTERNAL USE ONLY · 演示版本 v1.0</footer>
+</div>
+
+<script>
+/* ============================================================
+ * 登录页逻辑
+ * 注意：后端目前未提供登录接口（见 docs/接口文档），此处为模拟校验。
+ * 待后端提供 POST /login 后，将 CONFIG.LOGIN_API 填入即可切换为真实校验。
+ * ============================================================ */
+const CONFIG = {
+  LOGIN_API: "",              // 例："/login"，置空则走前端模拟校验
+  AFTER_LOGIN_URL: "chat.html", // 登录成功后跳转页（检索问答工作台）
+  REDIRECT_ENABLED: true,     // 工作台页面已生成，登录成功后自动跳转
+  MOCK_DELAY: 900             // 模拟校验耗时（毫秒）
+};
+
+const form = document.getElementById("loginForm");
+const usernameInput = document.getElementById("username");
+const passwordInput = document.getElementById("password");
+const errUsername = document.getElementById("err-username");
+const errPassword = document.getElementById("err-password");
+const btnSubmit = document.getElementById("btnSubmit");
+const successBox = document.getElementById("successBox");
+const successText = document.getElementById("successText");
+
+/* ---------- 校验 ---------- */
+function validate() {
+  let ok = true;
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+
+  errUsername.classList.remove("show");
+  errPassword.classList.remove("show");
+  usernameInput.classList.remove("input-error");
+  passwordInput.classList.remove("input-error");
+
+  if (!username) {
+    errUsername.textContent = "[E-1001] 请输入登录账号";
+    errUsername.classList.add("show");
+    usernameInput.classList.add("input-error");
+    ok = false;
+  } else if (username.length < 3) {
+    errUsername.textContent = "[E-1002] 账号长度不少于 3 位";
+    errUsername.classList.add("show");
+    usernameInput.classList.add("input-error");
+    ok = false;
+  }
+
+  if (!password) {
+    errPassword.textContent = "[E-1003] 请输入登录密码";
+    errPassword.classList.add("show");
+    passwordInput.classList.add("input-error");
+    ok = false;
+  } else if (password.length < 6) {
+    errPassword.textContent = "[E-1004] 密码长度不少于 6 位";
+    errPassword.classList.add("show");
+    passwordInput.classList.add("input-error");
+    ok = false;
+  }
+  return ok;
+}
+
+/* ---------- 提交 ---------- */
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!validate()) return;
+
+  btnSubmit.disabled = true;
+  btnSubmit.classList.add("loading");
+
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+
+  try {
+    if (CONFIG.LOGIN_API) {
+      /* 真实接口（后端就绪后启用） */
+      const resp = await fetch(CONFIG.LOGIN_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      if (!resp.ok) throw new Error("auth failed");
+    } else {
+      /* 模拟校验 */
+      await new Promise(r => setTimeout(r, CONFIG.MOCK_DELAY));
+      console.info("[login] 模拟校验通过 user=" + username);
+    }
+
+    onLoginSuccess();
+  } catch (err) {
+    errUsername.textContent = "[E-1101] 账号或密码错误，请重试";
+    errUsername.classList.add("show");
+    usernameInput.classList.add("input-error");
+    btnSubmit.disabled = false;
+    btnSubmit.classList.remove("loading");
+  }
+});
+
+/* ---------- 成功 ---------- */
+function onLoginSuccess() {
+  form.style.display = "none";
+  successBox.classList.add("show");
+
+  if (CONFIG.REDIRECT_ENABLED) {
+    successText.textContent = "登录成功，正在进入知识库……";
+    setTimeout(() => { window.location.href = CONFIG.AFTER_LOGIN_URL; }, 800);
+  } else {
+    successText.textContent =
+      "登录成功。聊天检索界面开发中，即将上线。\n（当前为演示流程：后端登录接口待接入）";
+  }
+}
+
+/* ---------- 密码显隐 ---------- */
+const togglePwd = document.getElementById("togglePwd");
+const eyeOpen = document.getElementById("eyeOpen");
+const eyeClosed = document.getElementById("eyeClosed");
+togglePwd.addEventListener("click", () => {
+  const show = passwordInput.type === "password";
+  passwordInput.type = show ? "text" : "password";
+  eyeOpen.style.display = show ? "none" : "block";
+  eyeClosed.style.display = show ? "block" : "none";
+});
+
+/* ---------- 输入即清除错误 ---------- */
+usernameInput.addEventListener("input", () => {
+  errUsername.classList.remove("show");
+  usernameInput.classList.remove("input-error");
+});
+passwordInput.addEventListener("input", () => {
+  errPassword.classList.remove("show");
+  passwordInput.classList.remove("input-error");
+});
+
+/* ---------- 忘记密码提示 ---------- */
+document.getElementById("forgotLink").addEventListener("click", () => {
+  alert("请联系系统管理员重置密码。\n（演示环境：此功能尚未接入）");
+});
+</script>
+
+</body>
+</html>
