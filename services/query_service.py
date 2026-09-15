@@ -30,7 +30,7 @@ class QueryService:
             state["original_query"] = query
             state["is_stream"] = is_stream
 
-            # 这里坚决不加任何 push_sse_event，完全交给 answer_output_node 去处理！
+            
             state = graph.invoke(state)
             return state["answer"]
 
