@@ -1,11 +1,11 @@
-# 虚拟环境 (千万别传)
+# 虚拟环境 
 .venv311/
 venv/
 env/
 __pycache__/
 *.py[cod]
 
-# 敏感信息 (千万不要传)
+# 敏感信息
 .env
 .env.local
 
