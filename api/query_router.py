@@ -1,8 +1,9 @@
 import asyncio
 from functools import partial
 
+import httpx
 import uvicorn
-from fastapi import FastAPI, Depends, BackgroundTasks, Request
+from fastapi import FastAPI, Depends, BackgroundTasks, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -99,6 +100,25 @@ async def get_history(
         items=history_list
     )
 
+
+@app.get("/api/proxy/image")
+async def proxy_image(url: str = Query(...)):
+    # 1. 安全校验：只允许请求你自己的 MinIO，防止被恶意利用
+    if not url.startswith("http://192.168.10.100:9000"):
+        return {"error": "invalid url"}
+
+    # 2. 后端在内部去请求 MinIO（走内网，不受浏览器跨域和 VPN 影响）
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=10.0)
+            if resp.status_code != 200:
+                return {"error": "image not found"}
+
+            # 3. 动态获取真实图片类型（jpeg/png 等），原封不动传给前端
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            return StreamingResponse(iter([resp.content]), media_type=content_type)
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.delete("/history/{session_id}")
 async def clear_history(
