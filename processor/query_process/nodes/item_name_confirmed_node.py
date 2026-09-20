@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 from langchain_core.messages import SystemMessage, HumanMessage
 from processor.query_process.config import get_config
@@ -48,6 +49,31 @@ class ItemNameConfirmedNode(BaseNode):
         item_names, rewritten_query = self.extractor.extract_item_name(original_query, history_context)
         print(rewritten_query)
         print(item_names)
+
+        # ===== 兜底：如果 LLM 提取失败，但历史里有候选列表，且用户回复很短 =====
+        if not item_names and history:
+            last_assistant_msg = next(
+                (m for m in reversed(history) if m.get("role") == "assistant"),
+                None
+            )
+            if last_assistant_msg:
+                last_text = last_assistant_msg.get("text", "")
+                # 判断助手上一条是否在问候选列表
+                if "请问你是在询问以下内容吗" in last_text:
+                    # 从助手的文本里正则提取候选列表
+                    match = re.search(r"\[([^\]]+)\]", last_text)
+                    if match:
+                        candidates = [c.strip() for c in match.group(1).split(",")]
+                        # 用户回复很短（如"是"、"对的"、"第一个"），且候选列表非空
+                        if len(original_query) <= 5 and candidates:
+                            # 如果用户说"第二个"就取第二个，否则取第一个
+                            if "二" in original_query and len(candidates) >= 2:
+                                item_names = [candidates[1]]
+                            else:
+                                item_names = [candidates[0]]
+                            rewritten_query = original_query
+        # ===== 兜底结束 =====
+
         #4.将llm生成的商品名与数据库中的对齐
         if item_names:
             confirmed, options = self.aligner.search_and_align(item_names)
