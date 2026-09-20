@@ -344,81 +344,98 @@ def step_9_save_result_csv(result_rows: List[Dict[str, object]], output_path: Pa
 
 
 def main() -> None:
-    """评估主流程：读取问题 → 调用 RAG 图 → ragas 评估 → 写出 CSV"""
-    # 配置日志
     setup_logging(logging.INFO)
-
-    # 步骤1：读取评估问题集（question + ground_truth）
     question_df = step_1_read_questions()
     total = len(question_df)
     print(f"共读取 {total} 条评估问题")
 
-    # 步骤2：构建 RAG 查询流程图
     graph = step_2_build_query_graph()
-
-    # 步骤5/6：构建 ragas 评估使用的 LLM 与嵌入模型
     ragas_llm = step_5_build_ragas_llm()
     ragas_embeddings = step_6_build_ragas_embeddings()
-
-    # 步骤7：创建 ragas 五项评估指标
     metrics = step_7_create_ragas_metrics(ragas_llm, ragas_embeddings)
 
-    result_rows: List[Dict[str, object]] = []
-    # 逐条问题评估
+    samples = []
+    result_rows = []
+
+    # 1. 先批量跑 RAG 流程，收集样本
     for index, row in question_df.iterrows():
         question = str(row["question"]).strip()
         ground_truth = str(row["ground_truth"]).strip() if pd.notna(row["ground_truth"]) else ""
-        print(f"\n[{index + 1}/{total}] 问题：{question}")
+        print(f"\n[{index + 1}/{total}] 正在执行 RAG：{question}")
 
         try:
-            # 步骤3：调用 RAG 查询流程，获取执行完成后的最终 state
             state = step_3_invoke_graph_for_answer(graph, question)
-
-            # 步骤4：从 state 中提取检索上下文
             contexts = step_4_extract_context_from_state(state)
             answer = str(state.get("answer") or "").strip()
-
-            # 步骤8：执行 ragas 五项指标评估
-            scores = step_8_evaluate_one_question(metrics, question, contexts, answer, ground_truth)
         except Exception as exc:
-            # 单条失败不影响整体流程，记录错误并置为空值
-            print(f"    错误：该问题评估失败：{exc}")
+            print(f"    错误：RAG 流程失败：{exc}")
             contexts, answer = [], ""
-            scores = {metric.name: None for metric in metrics}
 
-        # 打印本条问题的评估分数
-        score_text = "，".join(
-            f"{METRIC_COLUMN_MAP.get(name, name)}={value:.4f}"
-            if isinstance(value, float)
-            else f"{METRIC_COLUMN_MAP.get(name, name)}=N/A"
-            for name, value in scores.items()
-        )
-        print(f"    分数：{score_text}")
+        # 构建 RAGAS 样本
+        if answer and contexts:
+            samples.append(
+                SingleTurnSample(
+                    user_input=question,
+                    retrieved_contexts=contexts,
+                    response=answer,
+                    reference=ground_truth,
+                )
+            )
+        else:
+            print("    警告：答案或上下文为空，跳过 RAGAS 评估")
 
-        # 汇总为 CSV 行（9 列）
+        # 占位，稍后填入分数
         result_rows.append({
             "question": question,
             "context": "\n\n".join(contexts),
             "answer": answer,
             "ground_trush": ground_truth,
-            **{
-                METRIC_COLUMN_MAP.get(metric.name, metric.name): scores.get(metric.name)
-                for metric in metrics
-            },
+            **{metric.name: None for metric in metrics}
         })
 
-    # 步骤9：将评估结果保存到 eval/qa_result.csv（UTF-8 BOM 编码）
+    # 2. 一次性批量评估所有样本（核心提速点！）
+    if samples:
+        print(f"\n开始批量 RAGAS 评估，共 {len(samples)} 条样本...")
+        dataset = EvaluationDataset(samples=samples)
+
+        # 关键：引入 RunConfig 开启并发（max_workers=4 表示同时跑4个指标任务）
+        from ragas import RunConfig
+        run_config = RunConfig(max_workers=4, timeout=120)
+
+        try:
+            result = evaluate(dataset=dataset, metrics=metrics, run_config=run_config, show_progress=True)
+            score_df = result.to_pandas()
+
+            # 把分数回填到 result_rows
+            for i, row in score_df.iterrows():
+                # 找到对应的 result_rows（按问题匹配）
+                for r in result_rows:
+                    if r["question"] == row["user_input"]:
+                        for metric in metrics:
+                            if metric.name in row and pd.notna(row[metric.name]):
+                                r[metric.name] = round(float(row[metric.name]), 4)
+                        break
+        except Exception as exc:
+            print(f"批量 RAGAS 评估失败：{exc}")
+
+    # 3. 打印并保存
+    print("\n===== 单条问题分数 =====")
+    for r in result_rows:
+        score_text = "，".join(
+            f"{METRIC_COLUMN_MAP.get(name, name)}={value:.4f}"
+            if isinstance(value, float) else f"{METRIC_COLUMN_MAP.get(name, name)}=N/A"
+            for name, value in r.items() if name in METRIC_COLUMN_MAP.values()
+        )
+        print(f"{r['question']}: {score_text}")
+
     step_9_save_result_csv(result_rows, OUTPUT_CSV_PATH)
 
-    # 打印整体平均分汇总
     print("\n===== 平均分汇总 =====")
     for metric in metrics:
         column = METRIC_COLUMN_MAP.get(metric.name, metric.name)
         values = [r[column] for r in result_rows if isinstance(r.get(column), float)]
-        if values:
-            print(f"{column}：{sum(values) / len(values):.4f}（有效 {len(values)}/{total} 条）")
-        else:
-            print(f"{column}：无有效分数")
+        print(
+            f"{column}：{sum(values) / len(values):.4f}（有效 {len(values)}/{total} 条）" if values else f"{column}：无有效分数")
     print(f"\n评估完成，结果已保存至：{OUTPUT_CSV_PATH}")
 
 
