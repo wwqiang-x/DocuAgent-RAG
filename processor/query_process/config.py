@@ -31,7 +31,7 @@ class QueryConfig:
 
     # ==================== Rerank 配置 ====================
     rerank_max_top_k: int = field(
-        default_factory=lambda: int(os.getenv("RERANK_MAX_TOP_K", "8"))
+        default_factory=lambda: int(os.getenv("RERANK_MAX_TOP_K", "4"))
     )
     rerank_min_top_k: int = field(
         default_factory=lambda: int(os.getenv("RERANK_MIN_TOP_K", "3"))
@@ -48,7 +48,7 @@ class QueryConfig:
         default_factory=lambda: int(os.getenv("RRF_K", "60"))
     )
     rrf_max_results: int = field(
-        default_factory=lambda: int(os.getenv("RRF_MAX_RESULTS", "5"))
+        default_factory=lambda: int(os.getenv("RRF_MAX_RESULTS", "8"))
     )
 
     # ==================== 检索配置 ====================

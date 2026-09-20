@@ -7,7 +7,7 @@
 2. 要求列头：question, ground_truth
 3. 编码集：UTF-8 BOM，支持excel打开
 4. 生成的每个问题请以：hak180烫金机为开头
-5. 生成10对问答
+5. 生成30对问答
 
 ## 生成评估要求
 请帮我基于ragas生成一个python语言的评估测试程序

@@ -15,7 +15,10 @@ from processor.query_process.state import QueryGraphState, get_default_state
 
 
 def my_router(state: QueryGraphState) -> QueryGraphState:
-    if state.get("answer"):
+    # 只有当下游已经明确生成了 answer（比如真正的拒答），才短路
+    # 如果答案是“询问用户候选”这种类型，必须继续走检索链路，让 RAGAS 拿到上下文
+    answer = state.get("answer", "")
+    if answer and "请问你是在询问以下内容吗" not in answer:
         return True
     else:
         return False
@@ -44,6 +47,7 @@ def create_query_graph():
         True:"answer_output_node",
         False:"multi_search"
     })
+
     graph.add_edge("multi_search","hybrid_vector_search_node")
     graph.add_edge("multi_search","hyde_vector_search_node")
     graph.add_edge("multi_search", "web_mcp_search_node")

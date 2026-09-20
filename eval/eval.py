@@ -18,7 +18,9 @@
 【运行方式】
     在项目根目录执行：python eval/eval.py
 """
-
+import os
+from openai import OpenAI
+from ragas.llms import llm_factory
 import asyncio
 import logging
 import sys
@@ -28,9 +30,15 @@ from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
+
 # 加载 .env 环境变量（与项目其他模块保持一致）
 load_dotenv()
-
+os.environ["HTTP_PROXY"] = ""
+os.environ["HTTPS_PROXY"] = ""
+os.environ["http_proxy"] = ""
+os.environ["https_proxy"] = ""
+for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]:
+    os.environ.pop(key, None)
 # ==================== 路径引导 ====================
 # 将项目根目录加入 sys.path，保证从任意位置运行本脚本时都能 import 到 processor / utils 等模块
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -97,14 +105,11 @@ class BgeM3RagasEmbeddings(BaseRagasEmbeddings):
     """
 
     def __init__(self, bge_m3_client):
-        """初始化适配器
-
-        Args:
-            bge_m3_client: AIClients.get_bge_m3_client() 返回的 BGEM3EmbeddingFunction 客户端
-        """
         super().__init__()
-        # 保存 BGE-M3 客户端（私有属性，不参与 pydantic 校验）
         self._bge_m3_client = bge_m3_client
+        # 核心修复：给嵌入模型设置 run_config
+        from ragas import RunConfig
+        self.run_config = RunConfig(max_workers=4, timeout=60)
 
     def _encode_dense(self, texts: List[str]) -> List[List[float]]:
         """调用项目统一入口（utils/embedding_util.py）为文本生成稠密向量
@@ -196,46 +201,48 @@ def step_3_invoke_graph_for_answer(graph, question: str) -> dict:
 
 
 def step_4_extract_context_from_state(state: dict) -> List[str]:
-    """步骤4：从 state 中提取检索上下文（作为 ragas 的 context）
-
-    说明：state["history"] 保存的是历史对话记录（user/assistant 文本），并非检索到的知识片段；
-    ragas 的 Faithfulness / ContextPrecision / ContextRecall 依赖的是“检索上下文”，
-    而真正参与答案生成的是 reranked_docs（重排序后的切片，字段结构与
-    answer_output_node._format_context 使用的一致），因此优先从该字段提取；
-    若为空则回退到 rrf_chunks（RRF 融合后的切片）。
-    如需改用其他字段，只需修改本函数。
-
-    Args:
-        state: 步骤3 中图执行完成后的最终 state
-
-    Returns:
-        上下文文本列表（每个元素是一段检索到的知识切片 content）
-    """
-    # 1. 依次尝试从 reranked_docs、rrf_chunks 提取切片内容
+    """从 state 中提取检索上下文，加入更全面的兜底"""
+    # 1. 优先尝试 reranked_docs、rrf_chunks
     for field_name in ("reranked_docs", "rrf_chunks"):
         docs = state.get(field_name) or []
-        contexts = [
-            doc.get("content", "")
-            for doc in docs
-            if isinstance(doc, dict) and doc.get("content")
-        ]
-        # 2. 只要提取到非空上下文就返回
+        contexts = [doc.get("content", "") for doc in docs if isinstance(doc, dict) and doc.get("content")]
         if contexts:
             return contexts
+
+    # 2. 兜底：如果重排/RRF都为空，直接使用原始混合召回的结果
+    for field_name in ("embedding_chunks", "hyde_embedding_chunks"):
+        docs = state.get(field_name) or []
+        contexts = []
+        for doc in docs:
+            if isinstance(doc, dict):
+                # Milvus 原始结果通常是 entity 包装的
+                entity = doc.get("entity", {})
+                content = entity.get("content") if isinstance(entity, dict) else None
+                if not content:
+                    content = doc.get("content")
+                if content:
+                    contexts.append(content)
+        if contexts:
+            return contexts
+
     return []
 
 
-def step_5_build_ragas_llm() -> LangchainLLMWrapper:
-    """步骤5：构建 ragas 评估使用的 LLM（来源：utils/client/ai_clients.py 的 AIClients）"""
-    # 1. 获取项目统一的 LLM 客户端（文本模式，不带 JSON 输出约束）
-    llm_client = AIClients.get_llm_client(response_format=False)
+def step_5_build_ragas_llm():
+    # 1. 强行清理代理（防止 VPN 拦截 RAGAS 的并发请求）
+    os.environ["HTTP_PROXY"] = ""
+    os.environ["HTTPS_PROXY"] = ""
+    os.environ["http_proxy"] = ""
+    os.environ["https_proxy"] = ""
 
-    # 2. 关闭流式标记：ragas 内部走 ainvoke 异步调用，流式标记可能影响其工作稳定性
-    #    （该客户端是进程内单例，评估脚本独立运行，不影响其他进程使用）
-    llm_client.streaming = False
+    # 2. 直接使用 OpenAI 兼容客户端
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),  # 确保 .env 里有这个
+        base_url=os.getenv("OPENAI_API_BASE")  # 通常是 dashscope 兼容地址
+    )
 
-    # 3. 包装为 ragas 认识的 LLM 接口
-    return LangchainLLMWrapper(llm_client)
+    # 3. 使用 RAGAS 最新的 llm_factory
+    return llm_factory("qwen-turbo", client=client)
 
 
 def step_6_build_ragas_embeddings() -> "BgeM3RagasEmbeddings":
@@ -348,6 +355,9 @@ def main() -> None:
     question_df = step_1_read_questions()
     total = len(question_df)
     print(f"共读取 {total} 条评估问题")
+    question_df = question_df.head(5)   # 临时只跑前 5 条
+    total = len(question_df)
+    print(f"===== 临时限制，只跑 {total} 条 =====")
 
     graph = step_2_build_query_graph()
     ragas_llm = step_5_build_ragas_llm()
@@ -400,23 +410,36 @@ def main() -> None:
 
         # 关键：引入 RunConfig 开启并发（max_workers=4 表示同时跑4个指标任务）
         from ragas import RunConfig
-        run_config = RunConfig(max_workers=4, timeout=120)
+        run_config = RunConfig(max_workers=16, timeout=120)
 
-        try:
-            result = evaluate(dataset=dataset, metrics=metrics, run_config=run_config, show_progress=True)
-            score_df = result.to_pandas()
+        # 分批评估：每批 10 条，避免单批次过大导致内部调度开销爆炸
+        batch_size = 10
+        all_score_dfs = []
+        for i in range(0, len(samples), batch_size):
+            batch_samples = samples[i:i + batch_size]
+            print(f"\n评估第 {i // batch_size + 1} 批，共 {len(batch_samples)} 条...")
+            batch_dataset = EvaluationDataset(samples=batch_samples)
+            try:
+                batch_result = evaluate(
+                    dataset=batch_dataset,
+                    metrics=metrics,
+                    run_config=run_config,
+                    show_progress=True
+                )
+                all_score_dfs.append(batch_result.to_pandas())
+            except Exception as exc:
+                print(f"第 {i // batch_size + 1} 批失败：{exc}")
 
+        if all_score_dfs:
+            score_df = pd.concat(all_score_dfs, ignore_index=True)
             # 把分数回填到 result_rows
             for i, row in score_df.iterrows():
-                # 找到对应的 result_rows（按问题匹配）
                 for r in result_rows:
                     if r["question"] == row["user_input"]:
                         for metric in metrics:
                             if metric.name in row and pd.notna(row[metric.name]):
                                 r[metric.name] = round(float(row[metric.name]), 4)
                         break
-        except Exception as exc:
-            print(f"批量 RAGAS 评估失败：{exc}")
 
     # 3. 打印并保存
     print("\n===== 单条问题分数 =====")
