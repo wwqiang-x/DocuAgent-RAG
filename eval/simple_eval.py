@@ -31,6 +31,7 @@ JUDGE_PROMPT = """你是技术文档问答评估专家。请对下面的问答�
 {{
   "faithfulness": 0.0,
   "answer_relevancy": 0.0,
+  "context_precision": 0.0,
   "context_recall": 0.0,
   "answer_correctness": 0.0
 }}
@@ -70,7 +71,7 @@ def main():
     df = df[df["answer"].notna() & df["context"].notna()].reset_index(drop=True)
     print(f"共 {len(df)} 条有效数据，开始打分...")
 
-    scores = {"faithfulness": [], "answer_relevancy": [], "context_recall": [], "answer_correctness": []}
+    scores = {"faithfulness": [], "answer_relevancy": [], "context_precision": [], "context_recall": [], "answer_correctness": []}
     for i, row in df.iterrows():
         print(f"[{i+1}/{len(df)}] {str(row['question'])[:40]}...")
         r = evaluate_row(row)
@@ -80,6 +81,7 @@ def main():
         df.at[i, "Answer Relevancy"] = r.get("answer_relevancy")
         df.at[i, "Context Recall"] = r.get("context_recall")
         df.at[i, "Answer Correctness"] = r.get("answer_correctness")
+        df.at[i, "Context Precision"] = r.get("context_precision")
 
     df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
     print("\n===== 平均分 =====")

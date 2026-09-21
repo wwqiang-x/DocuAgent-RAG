@@ -355,9 +355,9 @@ def main() -> None:
     question_df = step_1_read_questions()
     total = len(question_df)
     print(f"共读取 {total} 条评估问题")
-    question_df = question_df.head(5)   # 临时只跑前 5 条
-    total = len(question_df)
-    print(f"===== 临时限制，只跑 {total} 条 =====")
+    # question_df = question_df.head(5)   # 临时只跑前 5 条
+    # total = len(question_df)
+    # print(f"===== 临时限制，只跑 {total} 条 =====")
 
     graph = step_2_build_query_graph()
     ragas_llm = step_5_build_ragas_llm()
