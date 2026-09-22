@@ -56,6 +56,7 @@ class MdImgNode(BaseNode):
             )
         #获取文档的路径
         md_img_path_obj = md_path_obj.parent / "images"
+        md_img_path_obj.mkdir(parents=True, exist_ok=True)
         return md_content, md_path_obj,md_img_path_obj
 
     # List[Tuple[str,str,Tuple[str,str,str]]]返回图片名字 图片路径 图片描述（标题，上文，下文）

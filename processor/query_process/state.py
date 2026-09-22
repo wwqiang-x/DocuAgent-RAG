@@ -29,6 +29,7 @@ class QueryGraphState(TypedDict):
     rewritten_query: Annotated[str, lambda x, y: y if y is not None else x]  # 重写答案
     history: Annotated[list, lambda x, y: y if y is not None else x]  # 历史对话
     is_stream: Annotated[bool, lambda x, y: y if y is not None else x]  # 是否流式输出
+    selection_resolved: Annotated[bool, lambda x, y: y if y is not None else x]  # 是否已通过候选选择节点解析
 
 
 # ==================== 默认状态 ====================
@@ -49,6 +50,7 @@ DEFAULT_STATE: QueryGraphState = {
     "rewritten_query": "",          # 重写查询
     "history": [],                  # 历史对话
     "is_stream": False,             # 是否流式输出 (默认设为 False)
+    "selection_resolved": False,    # 是否已通过候选选择节点解析
 }
 
 def create_default_state(**overrides) -> QueryGraphState:

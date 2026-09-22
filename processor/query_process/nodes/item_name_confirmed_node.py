@@ -85,20 +85,37 @@ class ItemNameConfirmedNode(BaseNode):
         #  confirmed直接进入喜爱一个节点
         #  options 询问用户 等待用户确认
         #  都没有设置state的answer
+        # 5.决策处理
         if confirmed:
             state["item_names"] = confirmed
             state["rewritten_query"] = rewritten_query
         elif options:
-            # 如果只有一个候选，直接确认，无需询问用户
-            if len(options) == 1:
-                state["item_names"] = options
+            # ===== 防大小写、防空格重复的终极去重 =====
+            seen = set()
+            unique_options = []
+            for opt in options:
+                if not opt: continue
+                normalized_opt = opt.lower().strip()
+                if normalized_opt not in seen:
+                    seen.add(normalized_opt)
+                    unique_options.append(opt)
+            # ==========================================
+
+            if len(unique_options) == 1:
+                # 去重后只剩一个，直接确定，不让用户选！
+                state["item_names"] = unique_options
                 state["rewritten_query"] = rewritten_query
             else:
-                state["answer"] = f"我不确定您指的是什么，请问你是在询问以下内容吗:\n[{', '.join(options)}]"
+                # 去重后仍有多个，才询问用户
+                state["answer"] = f"我不确定您指的是什么，请问你是在询问以下内容吗:\n[{', '.join(unique_options)}]"
+                state["rewritten_query"] = rewritten_query
         else:
+            # 极其重要：绝对不要在这里给 state["answer"] 赋值！
+            # 否则会导致下游检索节点被直接跳过，RAGAS 评估没有上下文！
             state["item_names"] = []
             state["rewritten_query"] = rewritten_query
-        return state
+
+        return state  # <--- 千万不要漏掉这一行！
 
 class _ItemNameExtractor:
     #商品名提取
@@ -249,12 +266,21 @@ class _ItemNameAligner:
                             if picked not in options and picked not in confirmed:
                                 options.append(picked)
 
+
             else:
-                mid = [match for match in matches_sorted if match.get("score") >= 0.4 ]
+
+                mid = [match for match in matches_sorted if match.get("score") >= 0.4]
                 if mid:
                     for m in mid[:config.item_name_max_options]:
-                        options.append(m.get('item_name'))
-
+                        picked_name = m.get('item_name')
+                        if not picked_name:
+                            continue
+                        # 核心：转小写并去空格，用来做标准化比对
+                        normalized_name = picked_name.lower().strip()
+                        # 检查是否已经在 confirmed 或 options 中出现过（同样标准化后比对）
+                        existing_names = {c.lower().strip() for c in confirmed} | {o.lower().strip() for o in options}
+                        if normalized_name not in existing_names:
+                            options.append(picked_name)
         return confirmed, options
 
     def _item_score_name_filter(self,confirmed,search_results):

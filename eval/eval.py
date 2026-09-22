@@ -18,7 +18,9 @@
 【运行方式】
     在项目根目录执行：python eval/eval.py
 """
-
+import os
+from openai import OpenAI
+from ragas.llms import llm_factory
 import asyncio
 import logging
 import sys
@@ -28,9 +30,15 @@ from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
+
 # 加载 .env 环境变量（与项目其他模块保持一致）
 load_dotenv()
-
+os.environ["HTTP_PROXY"] = ""
+os.environ["HTTPS_PROXY"] = ""
+os.environ["http_proxy"] = ""
+os.environ["https_proxy"] = ""
+for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]:
+    os.environ.pop(key, None)
 # ==================== 路径引导 ====================
 # 将项目根目录加入 sys.path，保证从任意位置运行本脚本时都能 import 到 processor / utils 等模块
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -97,14 +105,11 @@ class BgeM3RagasEmbeddings(BaseRagasEmbeddings):
     """
 
     def __init__(self, bge_m3_client):
-        """初始化适配器
-
-        Args:
-            bge_m3_client: AIClients.get_bge_m3_client() 返回的 BGEM3EmbeddingFunction 客户端
-        """
         super().__init__()
-        # 保存 BGE-M3 客户端（私有属性，不参与 pydantic 校验）
         self._bge_m3_client = bge_m3_client
+        # 核心修复：给嵌入模型设置 run_config
+        from ragas import RunConfig
+        self.run_config = RunConfig(max_workers=4, timeout=60)
 
     def _encode_dense(self, texts: List[str]) -> List[List[float]]:
         """调用项目统一入口（utils/embedding_util.py）为文本生成稠密向量
@@ -196,46 +201,48 @@ def step_3_invoke_graph_for_answer(graph, question: str) -> dict:
 
 
 def step_4_extract_context_from_state(state: dict) -> List[str]:
-    """步骤4：从 state 中提取检索上下文（作为 ragas 的 context）
-
-    说明：state["history"] 保存的是历史对话记录（user/assistant 文本），并非检索到的知识片段；
-    ragas 的 Faithfulness / ContextPrecision / ContextRecall 依赖的是“检索上下文”，
-    而真正参与答案生成的是 reranked_docs（重排序后的切片，字段结构与
-    answer_output_node._format_context 使用的一致），因此优先从该字段提取；
-    若为空则回退到 rrf_chunks（RRF 融合后的切片）。
-    如需改用其他字段，只需修改本函数。
-
-    Args:
-        state: 步骤3 中图执行完成后的最终 state
-
-    Returns:
-        上下文文本列表（每个元素是一段检索到的知识切片 content）
-    """
-    # 1. 依次尝试从 reranked_docs、rrf_chunks 提取切片内容
+    """从 state 中提取检索上下文，加入更全面的兜底"""
+    # 1. 优先尝试 reranked_docs、rrf_chunks
     for field_name in ("reranked_docs", "rrf_chunks"):
         docs = state.get(field_name) or []
-        contexts = [
-            doc.get("content", "")
-            for doc in docs
-            if isinstance(doc, dict) and doc.get("content")
-        ]
-        # 2. 只要提取到非空上下文就返回
+        contexts = [doc.get("content", "") for doc in docs if isinstance(doc, dict) and doc.get("content")]
         if contexts:
             return contexts
+
+    # 2. 兜底：如果重排/RRF都为空，直接使用原始混合召回的结果
+    for field_name in ("embedding_chunks", "hyde_embedding_chunks"):
+        docs = state.get(field_name) or []
+        contexts = []
+        for doc in docs:
+            if isinstance(doc, dict):
+                # Milvus 原始结果通常是 entity 包装的
+                entity = doc.get("entity", {})
+                content = entity.get("content") if isinstance(entity, dict) else None
+                if not content:
+                    content = doc.get("content")
+                if content:
+                    contexts.append(content)
+        if contexts:
+            return contexts
+
     return []
 
 
-def step_5_build_ragas_llm() -> LangchainLLMWrapper:
-    """步骤5：构建 ragas 评估使用的 LLM（来源：utils/client/ai_clients.py 的 AIClients）"""
-    # 1. 获取项目统一的 LLM 客户端（文本模式，不带 JSON 输出约束）
-    llm_client = AIClients.get_llm_client(response_format=False)
+def step_5_build_ragas_llm():
+    # 1. 强行清理代理（防止 VPN 拦截 RAGAS 的并发请求）
+    os.environ["HTTP_PROXY"] = ""
+    os.environ["HTTPS_PROXY"] = ""
+    os.environ["http_proxy"] = ""
+    os.environ["https_proxy"] = ""
 
-    # 2. 关闭流式标记：ragas 内部走 ainvoke 异步调用，流式标记可能影响其工作稳定性
-    #    （该客户端是进程内单例，评估脚本独立运行，不影响其他进程使用）
-    llm_client.streaming = False
+    # 2. 直接使用 OpenAI 兼容客户端
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),  # 确保 .env 里有这个
+        base_url=os.getenv("OPENAI_API_BASE")  # 通常是 dashscope 兼容地址
+    )
 
-    # 3. 包装为 ragas 认识的 LLM 接口
-    return LangchainLLMWrapper(llm_client)
+    # 3. 使用 RAGAS 最新的 llm_factory
+    return llm_factory("qwen-turbo", client=client)
 
 
 def step_6_build_ragas_embeddings() -> "BgeM3RagasEmbeddings":
@@ -344,81 +351,114 @@ def step_9_save_result_csv(result_rows: List[Dict[str, object]], output_path: Pa
 
 
 def main() -> None:
-    """评估主流程：读取问题 → 调用 RAG 图 → ragas 评估 → 写出 CSV"""
-    # 配置日志
     setup_logging(logging.INFO)
-
-    # 步骤1：读取评估问题集（question + ground_truth）
     question_df = step_1_read_questions()
     total = len(question_df)
     print(f"共读取 {total} 条评估问题")
+    # question_df = question_df.head(5)   # 临时只跑前 5 条
+    # total = len(question_df)
+    # print(f"===== 临时限制，只跑 {total} 条 =====")
 
-    # 步骤2：构建 RAG 查询流程图
     graph = step_2_build_query_graph()
-
-    # 步骤5/6：构建 ragas 评估使用的 LLM 与嵌入模型
     ragas_llm = step_5_build_ragas_llm()
     ragas_embeddings = step_6_build_ragas_embeddings()
-
-    # 步骤7：创建 ragas 五项评估指标
     metrics = step_7_create_ragas_metrics(ragas_llm, ragas_embeddings)
 
-    result_rows: List[Dict[str, object]] = []
-    # 逐条问题评估
+    samples = []
+    result_rows = []
+
+    # 1. 先批量跑 RAG 流程，收集样本
     for index, row in question_df.iterrows():
         question = str(row["question"]).strip()
         ground_truth = str(row["ground_truth"]).strip() if pd.notna(row["ground_truth"]) else ""
-        print(f"\n[{index + 1}/{total}] 问题：{question}")
+        print(f"\n[{index + 1}/{total}] 正在执行 RAG：{question}")
 
         try:
-            # 步骤3：调用 RAG 查询流程，获取执行完成后的最终 state
             state = step_3_invoke_graph_for_answer(graph, question)
-
-            # 步骤4：从 state 中提取检索上下文
             contexts = step_4_extract_context_from_state(state)
             answer = str(state.get("answer") or "").strip()
-
-            # 步骤8：执行 ragas 五项指标评估
-            scores = step_8_evaluate_one_question(metrics, question, contexts, answer, ground_truth)
         except Exception as exc:
-            # 单条失败不影响整体流程，记录错误并置为空值
-            print(f"    错误：该问题评估失败：{exc}")
+            print(f"    错误：RAG 流程失败：{exc}")
             contexts, answer = [], ""
-            scores = {metric.name: None for metric in metrics}
 
-        # 打印本条问题的评估分数
-        score_text = "，".join(
-            f"{METRIC_COLUMN_MAP.get(name, name)}={value:.4f}"
-            if isinstance(value, float)
-            else f"{METRIC_COLUMN_MAP.get(name, name)}=N/A"
-            for name, value in scores.items()
-        )
-        print(f"    分数：{score_text}")
+        # 构建 RAGAS 样本
+        if answer and contexts:
+            samples.append(
+                SingleTurnSample(
+                    user_input=question,
+                    retrieved_contexts=contexts,
+                    response=answer,
+                    reference=ground_truth,
+                )
+            )
+        else:
+            print("    警告：答案或上下文为空，跳过 RAGAS 评估")
 
-        # 汇总为 CSV 行（9 列）
+        # 占位，稍后填入分数
         result_rows.append({
             "question": question,
             "context": "\n\n".join(contexts),
             "answer": answer,
             "ground_trush": ground_truth,
-            **{
-                METRIC_COLUMN_MAP.get(metric.name, metric.name): scores.get(metric.name)
-                for metric in metrics
-            },
+            **{metric.name: None for metric in metrics}
         })
 
-    # 步骤9：将评估结果保存到 eval/qa_result.csv（UTF-8 BOM 编码）
+    # 2. 一次性批量评估所有样本（核心提速点！）
+    if samples:
+        print(f"\n开始批量 RAGAS 评估，共 {len(samples)} 条样本...")
+        dataset = EvaluationDataset(samples=samples)
+
+        # 关键：引入 RunConfig 开启并发（max_workers=4 表示同时跑4个指标任务）
+        from ragas import RunConfig
+        run_config = RunConfig(max_workers=16, timeout=120)
+
+        # 分批评估：每批 10 条，避免单批次过大导致内部调度开销爆炸
+        batch_size = 10
+        all_score_dfs = []
+        for i in range(0, len(samples), batch_size):
+            batch_samples = samples[i:i + batch_size]
+            print(f"\n评估第 {i // batch_size + 1} 批，共 {len(batch_samples)} 条...")
+            batch_dataset = EvaluationDataset(samples=batch_samples)
+            try:
+                batch_result = evaluate(
+                    dataset=batch_dataset,
+                    metrics=metrics,
+                    run_config=run_config,
+                    show_progress=True
+                )
+                all_score_dfs.append(batch_result.to_pandas())
+            except Exception as exc:
+                print(f"第 {i // batch_size + 1} 批失败：{exc}")
+
+        if all_score_dfs:
+            score_df = pd.concat(all_score_dfs, ignore_index=True)
+            # 把分数回填到 result_rows
+            for i, row in score_df.iterrows():
+                for r in result_rows:
+                    if r["question"] == row["user_input"]:
+                        for metric in metrics:
+                            if metric.name in row and pd.notna(row[metric.name]):
+                                r[metric.name] = round(float(row[metric.name]), 4)
+                        break
+
+    # 3. 打印并保存
+    print("\n===== 单条问题分数 =====")
+    for r in result_rows:
+        score_text = "，".join(
+            f"{METRIC_COLUMN_MAP.get(name, name)}={value:.4f}"
+            if isinstance(value, float) else f"{METRIC_COLUMN_MAP.get(name, name)}=N/A"
+            for name, value in r.items() if name in METRIC_COLUMN_MAP.values()
+        )
+        print(f"{r['question']}: {score_text}")
+
     step_9_save_result_csv(result_rows, OUTPUT_CSV_PATH)
 
-    # 打印整体平均分汇总
     print("\n===== 平均分汇总 =====")
     for metric in metrics:
         column = METRIC_COLUMN_MAP.get(metric.name, metric.name)
         values = [r[column] for r in result_rows if isinstance(r.get(column), float)]
-        if values:
-            print(f"{column}：{sum(values) / len(values):.4f}（有效 {len(values)}/{total} 条）")
-        else:
-            print(f"{column}：无有效分数")
+        print(
+            f"{column}：{sum(values) / len(values):.4f}（有效 {len(values)}/{total} 条）" if values else f"{column}：无有效分数")
     print(f"\n评估完成，结果已保存至：{OUTPUT_CSV_PATH}")
 
 
