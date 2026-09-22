@@ -7,7 +7,7 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-
+from urllib.parse import unquote, quote
 from core.deps import get_query_service
 from core.paths import get_front_page_dir
 from services.query_service import QueryService
@@ -103,18 +103,24 @@ async def get_history(
 
 @app.get("/api/proxy/image")
 async def proxy_image(url: str = Query(...)):
-    # 1. 安全校验：只允许请求你自己的 MinIO，防止被恶意利用
+    # 第1步：FastAPI 已自动解码过一次，这里再 unquote 消除二次编码
+    url = unquote(url)
+
+    # 第2步：安全校验，只允许请求你自己的 MinIO
     if not url.startswith("http://192.168.10.100:9000"):
         return {"error": "invalid url"}
 
-    # 2. 后端在内部去请求 MinIO（走内网，不受浏览器跨域和 VPN 影响）
+    # 第3步：重新编码非 ASCII 字符（中文等），让 httpx 能正确发送请求
+    # safe 参数保留 URL 结构字符，只编码中文
+    url = quote(url, safe=":/?#[]@!$&'()*+,;=%")
+
+    # 第4步：后端在内部请求 MinIO
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, timeout=10.0)
             if resp.status_code != 200:
-                return {"error": "image not found"}
+                return {"error": f"image not found: {resp.status_code}"}
 
-            # 3. 动态获取真实图片类型（jpeg/png 等），原封不动传给前端
             content_type = resp.headers.get("content-type", "image/jpeg")
             return StreamingResponse(iter([resp.content]), media_type=content_type)
     except Exception as e:

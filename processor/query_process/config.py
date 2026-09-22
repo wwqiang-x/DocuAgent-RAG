@@ -61,7 +61,7 @@ class QueryConfig:
 
     # ==================== 商品确认节点配置 ====================
     item_name_high_confidence: float = field(
-        default_factory=lambda: float(os.getenv("ITEM_NAME_HIGH_CONFIDENCE", "0.75"))
+        default_factory=lambda: float(os.getenv("ITEM_NAME_HIGH_CONFIDENCE", "0.7"))
     )
     item_name_mid_confidence: float = field(
         default_factory=lambda: float(os.getenv("ITEM_NAME_MID_CONFIDENCE", "0.45"))
