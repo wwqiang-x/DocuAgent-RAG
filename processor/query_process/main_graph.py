@@ -4,6 +4,7 @@ import logging
 
 from langgraph.graph import StateGraph
 from processor.import_process.base import setup_logging
+from processor.query_process.nodes.selection_resolver_node import SelectionResolverNode
 from processor.query_process.nodes.answer_output_node import AnswerOutputNode
 from processor.query_process.nodes.hybrid_vector_search_node import HybridVectorSearchNode
 from processor.query_process.nodes.hyde_vector_search_node import HyDEVectorSearchNode
@@ -15,15 +16,32 @@ from processor.query_process.state import QueryGraphState, get_default_state
 
 
 def my_router(state: QueryGraphState) -> QueryGraphState:
-    if state.get("answer"):
+    # 只有当下游已经明确生成了 answer（比如真正的拒答），才短路
+    # 如果答案是“询问用户候选”这种类型，必须继续走检索链路，让 RAGAS 拿到上下文
+    answer = state.get("answer", "")
+    if answer and "请问你是在询问以下内容吗" not in answer:
         return True
     else:
         return False
+
+def selection_router(state: QueryGraphState) -> str:
+    """
+    SelectionResolver 的三路路由：
+    - "locked"        : 已锁定商品名 → 直接进入多路召回
+    - "rejected"      : 用户否定候选 → 直接走 answer_output_node 输出引导语
+    - "not_selection" : 非候选选择 → 交给 item_name_confirmed_node 正常提取
+    """
+    if not state.get("selection_resolved"):
+        return "not_selection"
+    if state.get("answer"):
+        return "rejected"
+    return "locked"
 
 def create_query_graph():
     graph = StateGraph(QueryGraphState)
     #添加节点
     graph.add_node("item_name_confirmed_node",ItemNameConfirmedNode())
+    graph.add_node("selection_resolver_node", SelectionResolverNode())
 
     #添加虚拟节点(多路召回)
     graph.add_node("multi_search",lambda x:x)
@@ -39,11 +57,26 @@ def create_query_graph():
     # 边保持不变
 
     #添加边
-    graph.add_edge("__start__","item_name_confirmed_node")
-    graph.add_conditional_edges("item_name_confirmed_node",my_router,{
-        True:"answer_output_node",
-        False:"multi_search"
+    # 入口从 selection_resolver_node 开始
+    graph.add_edge("__start__", "selection_resolver_node")
+
+    # selection_resolver_node 的三路条件路由
+    graph.add_conditional_edges(
+        "selection_resolver_node",
+        selection_router,
+        {
+            "locked": "multi_search",  # 已锁定商品名 → 直接检索
+            "rejected": "answer_output_node",  # 用户否定 → 输出引导语
+            "not_selection": "item_name_confirmed_node",  # 非候选选择 → 交回原节点
+        }
+    )
+
+    # item_name_confirmed_node 原有的条件边保持不变
+    graph.add_conditional_edges("item_name_confirmed_node", my_router, {
+        True: "answer_output_node",
+        False: "multi_search"
     })
+
     graph.add_edge("multi_search","hybrid_vector_search_node")
     graph.add_edge("multi_search","hyde_vector_search_node")
     graph.add_edge("multi_search", "web_mcp_search_node")

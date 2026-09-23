@@ -18,6 +18,11 @@ class HybridVectorSearchNode(BaseNode):
         rewritten_query = state.get("rewritten_query","")
         item_names = state.get("item_names",[])
 
+        if not rewritten_query or not rewritten_query.strip():
+            rewritten_query = state.get("original_query", "")
+            if not rewritten_query or not rewritten_query.strip():
+                return {"embedding_chunks": []}
+
         # 2.获取嵌入模型客户端 bge-m3  (AiClients)
         bge_m3 = AIClients.get_bge_m3_client()
 
@@ -41,7 +46,8 @@ class HybridVectorSearchNode(BaseNode):
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
             expr=expr,
-            expr_params=expr_params
+            expr_params=expr_params,
+            limit=8
         )
 
         # 6.执行混合搜索

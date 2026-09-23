@@ -67,21 +67,34 @@ class ReRankerNode(BaseNode):
         return reranker_docs
 
     def _cliff(self, reranked_docs):
+        # 如果重排后没有数据，直接返回空
+        if not reranked_docs:
+            return []
+
         scores = [doc.get("score") for doc in reranked_docs]
         normalize_scores = self._normalize_scores(scores)
-        #锻压检测
+
+        # 关键修复1：如果归一化分数为空，说明分数计算异常，直接返回所有重排数据，不要误杀
+        if not normalize_scores:
+            return reranked_docs
+
         min_top_k = self.config.rerank_min_top_k
         max_top_k = self.config.rerank_max_top_k
-        start = min_top_k
-        end = max_top_k if max_top_k < len(normalize_scores) else len(normalize_scores)
+
+        # 关键修复2：确保 top_k 值在合理范围内
+        start = min(min_top_k, len(normalize_scores))
+        end = min(max_top_k, len(normalize_scores))
+        if start >= end:
+            return reranked_docs[:max_top_k]
+
         end_index = end
-        #找第一个断崖
-        for i in range(start-1,end-1):
+        for i in range(start - 1, end - 1):
             current_score = normalize_scores[i]
-            next_score = normalize_scores[i+1]
+            next_score = normalize_scores[i + 1]
             if current_score - next_score >= self.config.rerank_gap_abs:
-                end_index = i+1
+                end_index = i + 1
                 break
+
         final_docs = reranked_docs[:end_index]
         return final_docs
 

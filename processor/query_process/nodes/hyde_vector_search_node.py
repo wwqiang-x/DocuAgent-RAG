@@ -2,7 +2,7 @@ from typing import Dict, Any
 
 from pymilvus import SearchResult
 
-from langchain.messages import SystemMessage,HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from processor.query_process.base import BaseNode, T
 from processor.query_process.state import QueryGraphState
 from prompts.query_prompt import HYDE_USER_PROMPT_TEMPLATE
@@ -20,6 +20,11 @@ class HyDEVectorSearchNode(BaseNode):
         # 1.参数校验 (rewritten_query,item_names)
         rewritten_query = state.get("rewritten_query", "")
         item_names = state.get("item_names", [])
+
+        if not rewritten_query or not rewritten_query.strip():
+            rewritten_query = state.get("original_query", "")
+            if not rewritten_query or not rewritten_query.strip():
+                return {"hyde_embedding_chunks": []}
 
         # 2.利用LLM生成原始查询的假设性文档
         # 获取llm客户端
@@ -58,7 +63,8 @@ class HyDEVectorSearchNode(BaseNode):
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
             expr=expr,
-            expr_params=expr_params
+            expr_params=expr_params,
+            limit = 8
         )
         # 6.进行混合向量检索
         res:SearchResult = execute_hybrid_search_query(

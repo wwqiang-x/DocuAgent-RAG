@@ -150,7 +150,7 @@ class DocumentSpliterNode(BaseNode):
             if total_len > self.config.max_content_length:
                 text_splitter = RecursiveCharacterTextSplitter(
                     chunk_size=self.config.max_content_length - len(title + "\n\n"),
-                    chunk_overlap=0,
+                    chunk_overlap=50,
                     separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?", " ", ""],
                     keep_separator=False  # 切分后的内容是否保留分隔符
                 )
@@ -213,7 +213,7 @@ class DocumentSpliterNode(BaseNode):
             parent_title = section.get("parent_title","")
             title = section.get("title","")
             body = section.get("body","")
-            content = f"{title}\n\n{body}"
+            content = f"【文档】{file_title}\n【章节】{title}\n【父章节】{parent_title}\n【正文】{body}"
             chunk = {
                 "file_title": file_title,
                 "parent_title": parent_title,
