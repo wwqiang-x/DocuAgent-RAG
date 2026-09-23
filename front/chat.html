@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>掌柜智库 · 检索问答与文档导入</title>
+<title>智擎 · 检索问答与文档导入</title>
 <style>
   /* ============ 设计变量：与登录页一致（严谨检索风） ============ */
   :root {
@@ -275,6 +275,7 @@
   }
   .pnode.done { color: var(--ok); border-color: rgba(62,207,142,.4); }
   .pnode.running { color: var(--accent-bright); border-color: var(--accent); }
+  .pnode.err { color: var(--err); border-color: rgba(244,96,108,.5); }
   .pnode .sp { display: inline-block; width: 10px; height: 10px; }
   .pnode.running .sp {
     border: 1.5px solid rgba(127,168,255,.3);
@@ -321,6 +322,96 @@
   }
   .btn-send:hover:not(:disabled) { background: var(--accent-bright); border-color: var(--accent-bright); }
   .btn-send:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* 查询模式切换：默认 RAG，向上展开 Agentic RAG / RAG。 */
+  .mode-switch {
+    position: relative;
+    flex: 0 0 auto;
+    z-index: 4;
+  }
+  .mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 41px;
+    padding: 0 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    background: var(--panel-2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .5px;
+    cursor: pointer;
+    transition: color .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .mode-toggle:hover:not(:disabled),
+  .mode-switch.open .mode-toggle {
+    color: var(--accent-bright);
+    border-color: var(--accent);
+    background: rgba(91,141,239,.08);
+  }
+  .mode-toggle:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+  .mode-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-bright);
+    box-shadow: 0 0 8px rgba(127,168,255,.7);
+  }
+  .mode-chevron {
+    font-size: 12px;
+    line-height: 1;
+    transition: transform .15s ease;
+  }
+  .mode-switch.open .mode-chevron {
+    transform: rotate(180deg);
+  }
+  .mode-menu {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    min-width: 148px;
+    padding: 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--panel);
+    box-shadow: 0 16px 34px rgba(0,0,0,.42);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+  }
+  .mode-switch.open .mode-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+  .mode-option {
+    display: block;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .mode-option:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
+  .mode-option.selected {
+    color: var(--accent-bright);
+    border-color: rgba(91,141,239,.45);
+    background: rgba(91,141,239,.14);
+  }
   .composer-hint {
     display: flex; justify-content: space-between;
     font-family: var(--mono); font-size: 9px; color: var(--text-faint);
@@ -565,9 +656,9 @@
   <!-- 顶栏 -->
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">智库</div>
+      <div class="brand-mark">智擎</div>
       <div>
-        <div class="brand-name">掌柜智库 · 知识库系统</div>
+        <div class="brand-name">智擎 · 双模知识引擎</div>
         <div class="brand-sub">KNOWLEDGE BASE WORKBENCH</div>
       </div>
     </div>
@@ -595,8 +686,8 @@
 
       <div class="messages" id="messages">
         <div class="welcome" id="welcome">
-          <div class="mark">智库</div>
-          <h2>掌柜智库 · 检索问答</h2>
+          <div class="mark">智擎</div>
+          <h2>智擎 · 检索问答</h2>
           <p class="sub">
             提问先对齐商品主体，经多路召回、RRF 融合与重排序精筛，<br>
             由大模型基于可信切片生成答案，检索链路全程可观测。
@@ -613,6 +704,17 @@
       <div class="composer">
         <div class="composer-box">
           <textarea id="input" rows="2" placeholder="输入您的问题，例如：RS-12数字万用表如何测量电阻？"></textarea>
+          <div class="mode-switch" id="modeSwitch">
+            <button class="mode-toggle" id="modeToggle" type="button" aria-expanded="false" aria-haspopup="listbox">
+              <span class="mode-dot"></span>
+              <span id="modeLabel">RAG</span>
+              <span class="mode-chevron">⌃</span>
+            </button>
+            <div class="mode-menu" id="modeMenu" role="listbox" aria-label="查询模式">
+              <button class="mode-option" type="button" role="option" data-mode="agent" aria-selected="false">Agentic RAG</button>
+              <button class="mode-option selected" type="button" role="option" data-mode="legacy" aria-selected="true">RAG</button>
+            </div>
+          </div>
           <button class="btn-send" id="btnSend">发送</button>
         </div>
         <div class="composer-hint">
@@ -673,7 +775,7 @@
     </aside>
   </div>
 
-  <footer>© 2026 掌柜智库 · 知识库系统 · INTERNAL USE ONLY · 演示版本 v1.0</footer>
+  <footer>© 2026 智擎 · 双模知识引擎 · INTERNAL USE ONLY · 演示版本 v1.2</footer>
 </div>
 
 <div class="toast-box" id="toastBox"></div>
@@ -713,6 +815,39 @@ const welcomeEl = $("welcome");
 const inputEl = $("input");
 const btnSend = $("btnSend");
 const toastBox = $("toastBox");
+const modeSwitchEl = $("modeSwitch");
+const modeToggleEl = $("modeToggle");
+const modeMenuEl = $("modeMenu");
+const modeLabelEl = $("modeLabel");
+
+/* 查询模式默认使用 RAG，用户选择会记录在浏览器本地。 */
+const QUERY_MODE_LABELS = {
+  legacy: "RAG",
+  agent: "Agentic RAG"
+};
+let activeQueryMode =
+  localStorage.getItem("kb_query_mode") === "agent"
+    ? "agent"
+    : "legacy";
+
+function setModeMenuOpen(open) {
+  /* 控制模式菜单的展开状态和无障碍属性。 */
+  modeSwitchEl.classList.toggle("open", open);
+  modeToggleEl.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function applyQueryMode(mode) {
+  /* 应用并持久化模式选择。 */
+  activeQueryMode = mode === "agent" ? "agent" : "legacy";
+  modeLabelEl.textContent = QUERY_MODE_LABELS[activeQueryMode];
+  localStorage.setItem("kb_query_mode", activeQueryMode);
+
+  modeMenuEl.querySelectorAll(".mode-option").forEach((option) => {
+    const selected = option.dataset.mode === activeQueryMode;
+    option.classList.toggle("selected", selected);
+    option.setAttribute("aria-selected", selected ? "true" : "false");
+  });
+}
 
 /* ============================================================
  * Toast
@@ -862,6 +997,36 @@ function renderProgress(nodesEl, doneList, runningList, durations) {
   });
 }
 
+/* Agent 模式动作名称映射。 */
+const AGENT_ACTION_LABELS = {
+  resolve_product: "确认问题产品",
+  search_local: "本地检索",
+  search_web: "网络搜索",
+  ask_user: "请求用户补充",
+  cannot_answer: "无法回答",
+  answer: "生成答案"
+};
+
+function agentStepLabel(step) {
+  /* HyDE 与基础检索使用不同展示名称。 */
+  if (step.action === "search_local") {
+    return step.strategy === "hyde"
+      ? "HyDE 补充检索"
+      : "本地基础检索";
+  }
+  return AGENT_ACTION_LABELS[step.action] || step.action;
+}
+
+function renderAgentStep(nodesEl, step) {
+  /* Agent 每一步完成后追加一个可观察节点。 */
+  const node = document.createElement("span");
+  node.className = "pnode done";
+  if (step.error) node.classList.add("err");
+  node.textContent = (step.error ? "× " : "✓ ") + agentStepLabel(step);
+  if (step.reason) node.title = step.reason;
+  nodesEl.appendChild(node);
+}
+
 async function sendMessage(text) {
   const q = text.trim();
   if (!q) return;
@@ -870,6 +1035,8 @@ async function sendMessage(text) {
   inputEl.value = "";
   inputEl.style.height = "auto";
   btnSend.disabled = true;
+  modeToggleEl.disabled = true;
+  setModeMenuOpen(false);
 
   const asst = addAssistantBubble();
   const metaEl = asst.querySelector(".msg-meta");
@@ -877,15 +1044,25 @@ async function sendMessage(text) {
   const nodesEl = asst.querySelector(".progress-nodes");
   const summaryEl = asst.querySelector(".strip-summary");
   const stripTotalEl = asst.querySelector(".strip-total");
+  const pipelineTitleEl = asst.querySelector(".strip-cap span:first-child");
+  const requestedMode = activeQueryMode;
+  let effectiveMode = requestedMode;
 
-  metaEl.textContent = "助手 · " + nowTime() + " · 检索中…";
+  metaEl.textContent =
+    "助手 · " + nowTime() + " · " +
+    QUERY_MODE_LABELS[requestedMode] + " · 检索中…";
 
   try {
     /* 1. 提交查询（流式模式） */
     const resp = await fetch(queryBase + "/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: q, session_id: ensureSession(), is_stream: true })
+      body: JSON.stringify({
+        query: q,
+        session_id: ensureSession(),
+        is_stream: true,
+        mode: requestedMode
+      })
     });
     if (!resp.ok) throw new Error("查询服务响应异常 HTTP " + resp.status);
     const submit = await resp.json();
@@ -898,6 +1075,40 @@ async function sendMessage(text) {
     let nodeCount = 0, totalDuration = 0;
     let finalReceived = false;
     let rawAnswer = ""; /* 原始答案文本（含【图片】区块），渲染时统一解析 */
+
+    es.addEventListener("query_mode", (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        effectiveMode = data.effective_mode || requestedMode;
+        metaEl.textContent =
+          "助手 · " + nowTime() + " · " +
+          QUERY_MODE_LABELS[effectiveMode] + " · 检索中…";
+
+        if (effectiveMode === "agent") {
+          pipelineTitleEl.textContent = "AGENT PIPELINE";
+        }
+
+        /* 用户选择 Agent，但后端因开关或灰度实际走了 RAG 时给出提示。 */
+        if (requestedMode !== effectiveMode) {
+          toast(
+            "当前 Agentic RAG 未启用或未命中灰度，本次使用 RAG",
+            "err"
+          );
+        }
+      } catch (e) {}
+    });
+
+    es.addEventListener("agent_step", (ev) => {
+      try {
+        const step = JSON.parse(ev.data);
+        renderAgentStep(nodesEl, step);
+        nodeCount = step.step_no || nodeCount + 1;
+        totalDuration += Number(step.duration_ms || 0) / 1000;
+        stripTotalEl.textContent =
+          "已执行 " + totalDuration.toFixed(1) + "s";
+        scrollBottom();
+      } catch (e) {}
+    });
 
     es.addEventListener("progress", (ev) => {
       try {
@@ -954,9 +1165,13 @@ async function sendMessage(text) {
       /* 收拢进度条为一行摘要 */
       const strip = asst.querySelector(".progress-strip");
       strip.innerHTML =
-        '<div class="strip-summary">✓ 检索流程完成 · 共 ' + nodeCount + ' 节点 · 总耗时 ' + totalDuration.toFixed(1) + 's</div>';
+        '<div class="strip-summary">✓ ' +
+        QUERY_MODE_LABELS[effectiveMode] +
+        ' 完成 · 共 ' + nodeCount +
+        ' 节点 · 总耗时 ' + totalDuration.toFixed(1) + 's</div>';
       metaEl.textContent = "助手 · " + nowTime() + " · TASK " + taskId + " · 已完成";
       btnSend.disabled = false;
+      modeToggleEl.disabled = false;
       scrollBottom();
       inputEl.focus();
     }
@@ -967,6 +1182,7 @@ async function sendMessage(text) {
     asst.querySelector(".progress-strip").style.display = "none";
     metaEl.textContent = "助手 · " + nowTime() + " · 失败";
     btnSend.disabled = false;
+    modeToggleEl.disabled = false;
     toast(err.message || "查询服务不可用", "err");
   }
 }
@@ -983,6 +1199,31 @@ inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
   inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
 });
+
+/* ---------- 查询模式切换交互 ---------- */
+modeToggleEl.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setModeMenuOpen(!modeSwitchEl.classList.contains("open"));
+});
+
+modeMenuEl.querySelectorAll(".mode-option").forEach((option) => {
+  option.addEventListener("click", (event) => {
+    event.stopPropagation();
+    applyQueryMode(option.dataset.mode);
+    setModeMenuOpen(false);
+  });
+});
+
+document.addEventListener("click", (event) => {
+  if (!modeSwitchEl.contains(event.target)) setModeMenuOpen(false);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setModeMenuOpen(false);
+});
+
+/* 初始化模式按钮和持久化选择。 */
+applyQueryMode(activeQueryMode);
 
 /* 示例问题 */
 document.querySelectorAll(".sample-chip").forEach((chip) => {

@@ -8,11 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from core.deps import get_query_service
+from core.deps import (
+    get_agent_query_service,
+    get_query_mode_service,
+    get_query_service,
+)
 from core.paths import get_front_page_dir
+from services.agent_query_service import AgentQueryService
+from services.query_mode_service import QueryModeService
 from services.query_service import QueryService
-from schema.query_schema import QueryResponse, QueryRequest, StreamSubmitResponse, HistoryResponse
-from utils.sse_util import sse_generator,create_sse_queue
+from schema.query_schema import (
+    HistoryResponse,
+    QueryMode,
+    QueryRequest,
+    QueryResponse,
+    StreamSubmitResponse,
+)
+from utils.sse_util import create_sse_queue, push_sse_event, sse_generator
 
 app = FastAPI(description="", version="v1.0")
 
@@ -35,18 +47,105 @@ if static_resource_page_dir:
 async def query(
     background_tasks: BackgroundTasks,
     request: QueryRequest,
-    query_service: QueryService = Depends(get_query_service)
+    query_service: QueryService = Depends(get_query_service),
+    agent_query_service: AgentQueryService = Depends(
+        get_agent_query_service
+    ),
+    query_mode_service: QueryModeService = Depends(
+        get_query_mode_service
+    ),
 ):
+    """提交查询。
+
+    阶段 D 先解析最终模式，再决定使用固定 RAG 还是 Agent。
+    """
+
     session_id = request.session_id
     if not session_id:
         session_id = query_service.gener_session()
     task_id = query_service.gener_task_id()
     is_stream = request.is_stream
-    query = request.query
+    query_text = request.query
 
+    # 根据请求模式、配置和灰度比例解析最终模式。
+    routing = query_mode_service.resolve(
+        requested_mode=request.mode,
+        session_id=session_id,
+    )
+
+    # 流式请求先创建队列，并发送实际模式信息。
+    # 当前前端暂不监听该事件，后续模式按钮和动态渲染再使用。
     if is_stream:
         create_sse_queue(task_id)
-        background_tasks.add_task(query_service.run_query_graph, task_id, query, session_id, is_stream)
+        push_sse_event(
+            task_id=task_id,
+            event="query_mode",
+            data={
+                "requested_mode": routing.requested_mode.value,
+                "effective_mode": routing.effective_mode.value,
+                "reason": routing.reason,
+                "canary_bucket": routing.canary_bucket,
+            },
+        )
+
+    # ==================== Agent 模式 ====================
+    if routing.effective_mode == QueryMode.AGENT:
+        if is_stream:
+            background_tasks.add_task(
+                agent_query_service.run_agent_query,
+                task_id,
+                query_text,
+                session_id,
+                True,
+                routing.max_steps,
+                False,
+            )
+            return StreamSubmitResponse(
+                message="正在查询",
+                session_id=session_id,
+                task_id=task_id,
+            )
+
+        # 同步 Agent 查询在线程池中执行，避免阻塞事件循环。
+        loop = asyncio.get_event_loop()
+        func_with_args = partial(
+            agent_query_service.run_agent_query,
+            task_id,
+            query_text,
+            session_id,
+            False,
+            routing.max_steps,
+            True,
+        )
+
+        try:
+            await loop.run_in_executor(None, func_with_args)
+            answer = agent_query_service.get_task_result(task_id)
+            return QueryResponse(
+                message="查询成功",
+                session_id=session_id,
+                answer=answer,
+            )
+        except Exception:
+            # 未允许回退时，返回统一的 Agent 失败信息。
+            if not routing.fallback_to_legacy:
+                return QueryResponse(
+                    message="查询失败",
+                    session_id=session_id,
+                    answer="很抱歉，Agent 查询失败",
+                )
+
+            # 允许回退时继续执行下面的固定 RAG 分支。
+
+    # ==================== 旧版固定 RAG ====================
+    if is_stream:
+        background_tasks.add_task(
+            query_service.run_query_graph,
+            task_id,
+            query_text,
+            session_id,
+            is_stream,
+        )
         return StreamSubmitResponse(
             message="正在查询",
             session_id=session_id,
@@ -57,7 +156,7 @@ async def query(
         func_with_args = partial(
             query_service.run_query_graph,
             task_id,
-            query,
+            query_text,
             session_id,
             is_stream
         )
