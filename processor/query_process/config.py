@@ -20,9 +20,77 @@ load_dotenv(BASE_DIR / ".env", override=True)
 load_dotenv(BASE_DIR / ".env")
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    """读取布尔环境变量。"""
+    value = os.getenv(key)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(key: str, default: int) -> int:
+    """读取整数环境变量，非法值使用默认值。"""
+    try:
+        return int(os.getenv(key, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class QueryConfig:
     """查询流程配置。"""
+
+    # ==================== Agent 灰度配置 ====================
+    # 是否允许进入 Agent 模式。
+    agentic_rag_enabled: bool = field(
+        default_factory=lambda: _env_bool(
+            "AGENTIC_RAG_ENABLED",
+            True,
+        )
+    )
+
+    # auto 模式的默认策略：legacy、agent 或 canary。
+    default_query_mode: str = field(
+        default_factory=lambda: os.getenv(
+            "QUERY_DEFAULT_MODE",
+            "legacy",
+        ).strip().lower()
+    )
+
+    # canary 模式下进入 Agent 的 session 百分比。
+    agent_canary_percent: int = field(
+        default_factory=lambda: max(
+            0,
+            min(
+                100,
+                _env_int("AGENT_CANARY_PERCENT", 0),
+            ),
+        )
+    )
+
+    # 灰度分桶盐值，修改后同一个 session 的灰度结果会变化。
+    agent_canary_salt: str = field(
+        default_factory=lambda: os.getenv(
+            "AGENT_CANARY_SALT",
+            "knowledge-base-agent-v1",
+        )
+    )
+
+    # Agent 同步执行失败时是否自动回退旧链路。
+    agent_fallback_to_legacy: bool = field(
+        default_factory=lambda: _env_bool(
+            "AGENT_FALLBACK_TO_LEGACY",
+            True,
+        )
+    )
+
+    # Agent 最大工具调用步数。
+    agent_max_steps: int = field(
+        default_factory=lambda: max(
+            1,
+            _env_int("AGENT_MAX_STEPS", 6),
+        )
+    )
 
     # ==================== 文本处理配置 ====================
     max_context_chars: int = field(
